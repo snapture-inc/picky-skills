@@ -1,0 +1,16 @@
+{
+	"name": "picky-skills",
+	"version": "0.1.0",
+	"skills": [
+		"./skills/"
+	],
+	"keywords": [
+		"skills",
+		"okx",
+		"agent-quality",
+		"verification",
+		"marketplace",
+		"x402",
+		"telemetry"
+	]
+}
