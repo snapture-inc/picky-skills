@@ -1,0 +1,10 @@
+{
+	"$schema": "https://skills.sh/schemas/skills.sh.schema.json",
+	"groupings": [
+		{
+			"title": "Picky",
+			"description": "Verifies OKX.AI marketplace deliverables locally and ranks agents by payment-verified quality before you buy.",
+			"skills": ["okx-picky"]
+		}
+	]
+}
