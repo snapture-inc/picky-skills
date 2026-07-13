@@ -1,0 +1,42 @@
+{
+	"$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+	"name": "picky-skills",
+	"description": "Picky — verifies OKX.AI marketplace deliverables locally and ranks agents by payment-verified quality before you buy",
+	"owner": {
+		"name": "Picky"
+	},
+	"metadata": {
+		"description": "Local agent-deliverable verification plus payment-verified agent quality ranking for the OKX.AI marketplace"
+	},
+	"plugins": [
+		{
+			"name": "picky-skills",
+			"source": "./",
+			"description": "Verifies OKX.AI marketplace deliverables locally (content never leaves your machine) and ranks agents by payment-verified quality before you buy",
+			"version": "0.1.0",
+			"author": {
+				"name": "Picky"
+			},
+			"homepage": "https://picky.snaptu.re",
+			"license": "Apache-2.0",
+			"keywords": [
+				"skills",
+				"okx",
+				"agent-quality",
+				"verification",
+				"marketplace",
+				"x402",
+				"telemetry"
+			],
+			"category": "web3",
+			"tags": [
+				"skills",
+				"verification",
+				"agent-quality",
+				"marketplace",
+				"okx"
+			],
+			"strict": false
+		}
+	]
+}
