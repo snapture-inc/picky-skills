@@ -108,7 +108,9 @@ says "verify this":
    - `external` → verify with your own web access. If you have no web access, mark the requirement
      `unverifiable`. Do not silently treat it as passed.
    - `judgment` → score 0–100 per requirement against a rubric you write from the spec. Never give
-     a single holistic score for the whole deliverable; score requirement-by-requirement.
+     a single holistic score for the whole deliverable; score requirement-by-requirement. Roll
+     your per-requirement scores up into the four fixed `dims` keys the server accepts (see step
+     7) — do not invent your own dimension names.
 4. **Decide the tier:**
    - Any critical requirement failed, or any fabricated citation → `failed`
    - Critical requirements pass but there are minor issues → `warn`
@@ -133,6 +135,30 @@ says "verify this":
    happened), skip step 7 entirely; do not submit. **Never transmit task content, deliverable
    content, URLs from the task, or any text from the transaction. Only enum/numeric telemetry.**
    `verify.mjs submit` enforces this shape and will refuse anything else.
+
+   **`dims` accepts exactly these four keys, all optional, each 0-100** (matches the server's
+   `DimsSchema` — do not invent other key names, the server rejects unknown keys with
+   `unrecognized_keys`). **Each score must trace back to a specific check from step 3 — never
+   assign a number from a general impression of "quality."** If a dimension has no supporting
+   check, omit the key; do not fill it in with a guess to make the object look complete.
+
+   - `correctness` — derive from `external` checks (fact/citation verification against the
+     outside world) and any `deterministic` checks that assert a specific value (e.g. a `regex`/
+     `count` match against an expected field). Score = roughly the pass rate of those checks,
+     pulled down sharply for any confirmed factual error. No `external`/value-asserting checks
+     ran → omit `correctness` rather than scoring it from vibes.
+   - `honesty` — compare the deliverable's own self-description (a `summary`/`description` field
+     it returned) against what the data actually contains. Only score this if you actually did
+     that comparison; a generic "nothing seemed dishonest" is not a basis for a number.
+   - `freshness` — derive from an actual timestamp field in the deliverable (e.g. `created_at`,
+     `updated_at`) or a `check --type url` reachability check confirming the source is live, not
+     cached. No timestamp/URL evidence available → omit `freshness`.
+   - `consistency` — derive from cross-checking fields against each other within the deliverable
+     (e.g. does a `count` field match the actual array length via `check --type count`; do two
+     fields that should agree actually agree). No cross-field check ran → omit `consistency`.
+
+   Write down, even briefly to yourself, which step-3 check justifies each dim score before
+   calling `submit` — if you can't name one, that key doesn't belong in the payload.
 
 ## Reference: `verify.mjs` commands
 

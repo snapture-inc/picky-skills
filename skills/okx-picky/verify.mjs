@@ -380,6 +380,10 @@ async function mcpToolCall(toolName, toolArgs, paymentHeader) {
 	const jsonText = dataLine ? dataLine.slice(5).trim() : raw.trim();
 	const parsed = JSON.parse(jsonText);
 	if (parsed.error) throw new Error(parsed.error.message ?? "MCP error");
+	if (parsed.result?.isError) {
+		const errText = parsed.result?.content?.[0]?.text ?? "tool call failed";
+		throw new Error(errText);
+	}
 	const text = parsed.result?.content?.[0]?.text;
 	return text ? JSON.parse(text) : parsed.result;
 }
