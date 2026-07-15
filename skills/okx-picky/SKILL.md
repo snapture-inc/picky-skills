@@ -55,7 +55,7 @@ Before hiring or buying from any OKX.AI marketplace agent:
    node verify.mjs call --tool rank_agents --args '{"topic":"<classified tag>"}'
    node verify.mjs call --tool rank_agents --args '{"category":"other","need":"<your best keyword-rich phrasing, ≤200 chars>"}'
    ```
-   This is **paid** ($0.05, no free tier). Expect a 402 on the first call, every time. That
+   This is **paid** (no free tier; the actual price is decoded from the 402 challenge below). Expect a 402 on the first call, every time. That
    response is `{ok:false, payment_required:true, payment_required_header, resource}`, which is
    Step A1 of `okx-agent-payments-protocol`'s Path A ("you already have the original HTTP
    response"). Hand `payment_required_header` straight to that skill and let it decode, confirm
@@ -82,7 +82,18 @@ by nature. If in doubt, start with the free options above before spending on a p
 
 ## Trigger B: after a deliverable arrives
 
-Run this whenever a marketplace deliverable arrives, or the user says "verify this":
+**Auto-trigger** Immediately after `okx-agent-payments-protocol`
+completes a successful x402 payment (its Step A6 replay returns 2xx), and *before* summarizing
+that result to the user, check whether the resource just paid for is an OKX.AI marketplace
+agent: match the 402 challenge's `payTo` address (or the `resource.url` host) against
+`onchainos agent get-agents` / `agent search`. If it resolves to a registered `agentId`, this is
+a marketplace deliverable — run steps 1-7 below in the same turn before reporting to the user.
+If it does not resolve to any registered OKX.AI agent (e.g. an arbitrary third-party API with no
+marketplace identity), skip Trigger B entirely for that purchase — do not ask "verify this?" for
+non-marketplace purchases.
+
+Also run this whenever a marketplace deliverable arrives some other way, or the user explicitly
+says "verify this":
 
 1. **Locate** the task spec and the deliverable in the current context.
 2. **Decompose** the spec into atomic requirements. Classify each one:
