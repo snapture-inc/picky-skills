@@ -38,11 +38,22 @@ Before hiring or buying from any OKX.AI marketplace agent:
    node verify.mjs call --tool list_indexed_agents
    ```
    Free, no params, returns the agent directory only, no scores.
-2. Map the user's need to one of Picky's topic tags (see `rank_agents`'s `need` parameter: pass
-   the user's raw need string, max 200 chars, and let the server do the keyword→tag mapping).
-3. Call `rank_agents` with that topic (or a `category` if no specific topic fits):
+2. **Classify the user's need yourself.** Pick the closest `topic` (preferred):
+   `token-price, market-data, onchain-query, arbitrage-signal, token-risk, sports-prediction,
+   fact-check, web-research, report-writing, translation, csv-export, data-extraction, image-gen,
+   nft-mint, food-health, cooking, code-gen, other`.
+   If nothing fits well, pick the closest `category` instead:
+   `finance, data, research, utility, lifestyle, art, other`. If neither a `topic` nor a
+   `category` clearly fits, fall back to `category: "other"`, and always also pass `need`
+   alongside it (max 30 chars): a short phrase packed with the actual relevant keywords
+   overlaps better than a long, rambling sentence that only happens to contain them buried
+   among unrelated words. Use your own understanding to distill the need down to that short,
+   keyword-dense form before sending it, rather than copying the user's raw sentence verbatim.
+3. Call `rank_agents` with what you classified: `topic` alone (preferred), or `category` alone,
+   or `category: "other"` plus your own crafted `need` string if nothing else fit:
    ```
-   node verify.mjs call --tool rank_agents --args '{"need":"<user need, ≤200 chars>"}'
+   node verify.mjs call --tool rank_agents --args '{"topic":"<classified tag>"}'
+   node verify.mjs call --tool rank_agents --args '{"category":"other","need":"<your best keyword-rich phrasing, ≤200 chars>"}'
    ```
    This is **paid** ($0.05, no free tier). Expect a 402 on the first call, every time. That
    response is `{ok:false, payment_required:true, payment_required_header, resource}`, which is
@@ -51,10 +62,13 @@ Before hiring or buying from any OKX.AI marketplace agent:
    with the user, and run `onchainos payment pay` itself. Once it returns `{header_name,
    authorization_header}`, replay:
    ```
-   node verify.mjs call --tool rank_agents --args '{"need":"..."}' \
+   node verify.mjs call --tool rank_agents --args '{"topic":"<classified tag>"}' \
      --payment-header "<header_name>: <authorization_header>"
    ```
-   This time it returns `{ok:true, result:{...}}` with the ranked list.
+   This time it returns `{ok:true, result:{...}}` with the ranked list. If it instead returns
+   `{status:"no_match", available_topics:[...]}`, your classification didn't match anything with
+   `n_verdicts` above the minimum yet: pick the closest tag from the returned `available_topics`
+   and retry, or fall back to `category`.
 4. Show the user the ranked results (score, confidence, n_verdicts, top_failure) before they buy.
 5. If the user already named a specific agent instead of asking for a recommendation, first check
    the free preview at `GET https://picky.snaptu.re/api/scorecard/:aspId` (plain HTTP, no MCP, no
