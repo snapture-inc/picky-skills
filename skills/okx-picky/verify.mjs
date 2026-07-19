@@ -304,11 +304,9 @@ function validateSubmitArgs(candidate) {
 	return errors;
 }
 
-// A 402 thrown by mcpToolCall — this is Step A1 of the OKX Agent Payments Protocol's Path A
-// ("you already have the original HTTP response"), not a custom error path. We deliberately do
-// NOT decode/interpret the challenge or guess a payment scheme or header name here — that's the
-// job of the okx-agent-payments-protocol skill (see SKILL.md Trigger A). This just hands back
-// the raw, undecoded `PAYMENT-REQUIRED` value exactly as received.
+// Thrown when a paid tool responds 402. Not a failure — the caller hands the raw
+// `payment_required_header` to the okx-agent-payments-protocol skill, which pays and returns a
+// header to retry with.
 class PaymentRequiredError extends Error {
 	constructor({ paymentRequiredHeader, resource }) {
 		super("payment required");
@@ -318,74 +316,37 @@ class PaymentRequiredError extends Error {
 	}
 }
 
-// Paid Picky MCP tools (rank_agents, get_scorecard) are gated behind HTTP 402 (x402 v2): the
-// first call with no payment header gets a `PAYMENT-REQUIRED` response header (base64 JSON)
-// instead of a result. `submit_verdict` (used by `cmdSubmit`) is free and never hits this path.
-// `paymentHeader`, when provided, is `{name, value}` — the `header_name`/`authorization_header`
-// pair returned by `onchainos payment pay`, replayed verbatim on the paid retry.
-async function mcpToolCall(toolName, toolArgs, paymentHeader) {
-	const initRes = await fetch(MCP_URL, {
-		method: "POST",
-		headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
-		body: JSON.stringify({
-			jsonrpc: "2.0",
-			id: 1,
-			method: "initialize",
-			params: {
-				protocolVersion: "2024-11-05",
-				capabilities: {},
-				clientInfo: { name: "picky-skills", version: "0.1.0" },
-			},
-		}),
-	});
-	const sessionId = initRes.headers.get("mcp-session-id");
-	await initRes.text();
-
-	const callRes = await fetch(MCP_URL, {
+// Every Picky tool (list_topics, list_indexed_agents, rank_agents, get_scorecard,
+// submit_verdict) is a plain REST endpoint: POST https://picky.snaptu.re/mcp/<tool> with a JSON
+// body, JSON back. rank_agents/get_scorecard are paid and 402 until a payment header is attached.
+async function callTool(toolName, toolArgs, paymentHeader) {
+	const url = `${MCP_URL}/${toolName}`;
+	const res = await fetch(url, {
 		method: "POST",
 		headers: {
 			"content-type": "application/json",
-			accept: "application/json, text/event-stream",
-			...(sessionId ? { "mcp-session-id": sessionId } : {}),
+			accept: "application/json",
 			...(paymentHeader ? { [paymentHeader.name]: paymentHeader.value } : {}),
 		},
-		body: JSON.stringify({
-			jsonrpc: "2.0",
-			id: 2,
-			method: "tools/call",
-			params: { name: toolName, arguments: toolArgs },
-		}),
+		body: JSON.stringify(toolArgs ?? {}),
 	});
 
-	if (callRes.status === 402) {
-		const paymentRequiredHeader = callRes.headers.get("payment-required");
+	if (res.status === 402) {
+		const paymentRequiredHeader = res.headers.get("payment-required");
 		if (!paymentRequiredHeader) throw new Error("402 response carried no PAYMENT-REQUIRED header");
-		throw new PaymentRequiredError({ paymentRequiredHeader, resource: MCP_URL });
+		throw new PaymentRequiredError({ paymentRequiredHeader, resource: url });
 	}
 
-	const raw = await callRes.text();
-
-	if (!callRes.ok) {
-		// RFC 9457 Problem Details (what Cloudflare/most JSON APIs send for 4xx/5xx) — surface
-		// `detail`/`title` rather than reporting success with an empty result.
+	const raw = await res.text();
+	if (!res.ok) {
 		let detail = raw;
 		try {
 			const problem = JSON.parse(raw);
-			detail = problem.detail ?? problem.title ?? problem.message ?? raw;
+			detail = problem.detail ?? problem.title ?? problem.message ?? problem.error ?? raw;
 		} catch {}
-		throw new Error(`Picky MCP endpoint returned HTTP ${callRes.status}: ${detail}`);
+		throw new Error(`Picky endpoint returned HTTP ${res.status}: ${detail}`);
 	}
-
-	const dataLine = raw.split("\n").find((l) => l.startsWith("data:"));
-	const jsonText = dataLine ? dataLine.slice(5).trim() : raw.trim();
-	const parsed = JSON.parse(jsonText);
-	if (parsed.error) throw new Error(parsed.error.message ?? "MCP error");
-	if (parsed.result?.isError) {
-		const errText = parsed.result?.content?.[0]?.text ?? "tool call failed";
-		throw new Error(errText);
-	}
-	const text = parsed.result?.content?.[0]?.text;
-	return text ? JSON.parse(text) : parsed.result;
+	return raw ? JSON.parse(raw) : {};
 }
 
 async function cmdSubmit(args) {
@@ -413,16 +374,17 @@ async function cmdSubmit(args) {
 	}
 
 	try {
-		const result = await mcpToolCall("submit_verdict", candidate);
+		const result = await callTool("submit_verdict", candidate);
 		output(result);
 	} catch (e) {
 		output({ ok: false, reason: "request_failed", message: e.message });
 	}
 }
 
-// ---- call (generic Picky MCP tool invocation: list_indexed_agents / rank_agents / get_scorecard) ----
+// ---- call (generic Picky tool invocation: list_indexed_agents / list_topics / rank_agents / get_scorecard) ----
 async function cmdCall(args) {
-	if (!args.tool) return output({ ok: false, reason: "missing --tool <list_indexed_agents|rank_agents|get_scorecard>" });
+	if (!args.tool)
+		return output({ ok: false, reason: "missing --tool <list_indexed_agents|list_topics|rank_agents|get_scorecard>" });
 	let toolArgs = {};
 	if (args.args) {
 		try {
@@ -439,16 +401,11 @@ async function cmdCall(args) {
 	}
 
 	try {
-		const result = await mcpToolCall(args.tool, toolArgs, paymentHeader);
+		const result = await callTool(args.tool, toolArgs, paymentHeader);
 		output({ ok: true, result });
 	} catch (e) {
 		if (e instanceof PaymentRequiredError) {
-			// Not a failure. This is Step A1 of the OKX Agent Payments Protocol's Path A — hand
-			// it off exactly like calling any other paid OKX.AI agent service: pass
-			// `payment_required_header` as-is to the okx-agent-payments-protocol skill and let it
-			// decode/confirm/pay. Once it returns `{header_name, authorization_header}` from
-			// `onchainos payment pay`, retry this same `call` with
-			// `--payment-header "<header_name>: <authorization_header>"`.
+			// Hand off to okx-agent-payments-protocol to pay and get a header to retry with.
 			return output({
 				ok: false,
 				payment_required: true,
