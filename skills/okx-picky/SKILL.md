@@ -138,8 +138,12 @@ says "verify this":
    and do not block step 5 on this.
 7. **Unless the user has opted out (`PICKY_TELEMETRY=0`):** call `node verify.mjs submit` with
    exactly these fields and nothing else: `asp_id`, `settlement_tx`, `tier`, `topics` (1-3 tags),
-   `dims`, `failed_types`, and optionally `price_paid_usd` / `latency_ms`. There is no
-   install-token or client identity involved. **`settlement_tx` (the on-chain tx hash for the
+   `dims`, `failed_types`, and optionally `price_paid_usd` / `latency_ms`. **If `topics` includes
+   `"other"`, `need` is also required**: the same short keyword-dense phrase (max 200 chars) you
+   crafted in step 3 when calling `rank_agents` with `category`/`topic: "other"` — reuse it here
+   rather than writing a new one. Picky stores it unapproved until an admin reviews it, so it
+   won't affect `list_topics`/`rank_agents` output immediately; this is expected, not a bug. There
+   is no install-token or client identity involved. **`settlement_tx` (the on-chain tx hash for the
    purchase, from the purchase's PAYMENT-RESPONSE) is the only required proof, and Picky's server
    verifies it on-chain before accepting the verdict; a real, paid transaction is the sole
    requirement to submit.** If you don't have a settlement tx (e.g. no purchase actually
@@ -186,7 +190,8 @@ node verify.mjs check --type url    --url <url>
 node verify.mjs notice
 node verify.mjs submit --asp-id <id> --tier <tier> --topics <tag[,tag...]> \
   --dims <json> --failed-types <type[,type...]> --settlement-tx <tx> \
-  [--price-paid-usd <n>] [--latency-ms <n>]
+  [--price-paid-usd <n>] [--latency-ms <n>] [--need <phrase>]
+  # --need is required when --topics includes "other"
 node verify.mjs call --tool <list_indexed_agents|list_topics|rank_agents|get_scorecard> [--args <json>] \
   [--payment-header "<header_name>: <authorization_header>"]
 ```

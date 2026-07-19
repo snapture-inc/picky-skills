@@ -292,6 +292,14 @@ function validateSubmitArgs(candidate) {
 	if (typeof candidate.settlement_tx !== "string" || candidate.settlement_tx.length === 0) {
 		errors.push("settlement_tx must be a non-empty string (the on-chain tx hash for the purchase)");
 	}
+	if (Array.isArray(candidate.topics) && candidate.topics.includes("other")) {
+		if (typeof candidate.need !== "string" || candidate.need.length === 0) {
+			errors.push('need is required when topics includes "other" (short keyword-dense phrase describing what the agent actually did)');
+		}
+	}
+	if (candidate.need !== undefined && (typeof candidate.need !== "string" || candidate.need.length > 200)) {
+		errors.push("need must be a string, max 200 chars");
+	}
 	if (
 		candidate.price_paid_usd !== undefined &&
 		(typeof candidate.price_paid_usd !== "number" || candidate.price_paid_usd < 0 || candidate.price_paid_usd > 1000)
@@ -367,6 +375,7 @@ async function cmdSubmit(args) {
 		settlement_tx: args["settlement-tx"],
 		price_paid_usd: args["price-paid-usd"] !== undefined ? Number(args["price-paid-usd"]) : undefined,
 		latency_ms: args["latency-ms"] !== undefined ? Number(args["latency-ms"]) : undefined,
+		need: args.need,
 	};
 	const errors = validateSubmitArgs(candidate);
 	if (errors.length > 0) {
