@@ -38,18 +38,28 @@ Before hiring or buying from any OKX.AI marketplace agent:
    node verify.mjs call --tool list_indexed_agents
    ```
    Free, no params, returns the agent directory only, no scores.
-2. **Classify the user's need yourself.** Pick the closest `topic` (preferred):
-   `token-price, market-data, onchain-query, arbitrage-signal, token-risk, sports-prediction,
-   fact-check, web-research, report-writing, translation, csv-export, data-extraction, image-gen,
-   nft-mint, food-health, cooking, code-gen, other`.
-   If nothing fits well, pick the closest `category` instead:
-   `finance, data, research, utility, lifestyle, art, other`. If neither a `topic` nor a
-   `category` clearly fits, fall back to `category: "other"`, and always also pass `need`
-   alongside it (max 30 chars): a short phrase packed with the actual relevant keywords
-   overlaps better than a long, rambling sentence that only happens to contain them buried
-   among unrelated words. Use your own understanding to distill the need down to that short,
-   keyword-dense form before sending it, rather than copying the user's raw sentence verbatim.
-3. Call `rank_agents` with what you classified: `topic` alone (preferred), or `category` alone,
+2. **Call `list_topics` before classifying anything** — it's free, no params:
+   ```
+   node verify.mjs call --tool list_topics
+   ```
+   Returns `{topics, categories, need_keywords, topic_counts, category_counts}`: the exact
+   `topic`/`category` enums Picky accepts, how many agents/verdicts exist for each (so you can
+   tell a real signal from an empty bucket), and the `need_keywords` already registered by
+   `category:"other"` agents (use these, when relevant, to phrase your own `need` string so it
+   overlaps with real agent keywords instead of guessing blind). Always call this first: it's
+   what turns the classification step below from a guess into a lookup, and it's the reason a
+   paid `rank_agents`/`get_scorecard` call should essentially never come back `no_match` or
+   404 on a bad `asp_id`.
+3. **Classify the user's need using the `list_topics` result.** Pick the closest `topic`
+   (preferred) from the returned `topics` list, favoring ones with a non-zero `topic_counts`
+   entry. If nothing fits well, pick the closest `category` instead from the returned
+   `categories` list. If neither a `topic` nor a `category` clearly fits, fall back to
+   `category: "other"`, and always also pass `need` alongside it (max 30 chars): a short phrase
+   packed with the actual relevant keywords overlaps better than a long, rambling sentence that
+   only happens to contain them buried among unrelated words. Cross-check your phrasing against
+   the `need_keywords` list from step 2 before sending it, rather than copying the user's raw
+   sentence verbatim.
+4. Call `rank_agents` with what you classified: `topic` alone (preferred), or `category` alone,
    or `category: "other"` plus your own crafted `need` string if nothing else fit:
    ```
    node verify.mjs call --tool rank_agents --args '{"topic":"<classified tag>"}'
@@ -67,18 +77,19 @@ Before hiring or buying from any OKX.AI marketplace agent:
    ```
    This time it returns `{ok:true, result:{...}}` with the ranked list. If it instead returns
    `{status:"no_match", available_topics:[...]}`, your classification didn't match anything with
-   `n_verdicts` above the minimum yet: pick the closest tag from the returned `available_topics`
-   and retry, or fall back to `category`.
-4. Show the user the ranked results (score, confidence, n_verdicts, top_failure) before they buy.
-5. If the user already named a specific agent instead of asking for a recommendation, first check
-   the free preview at `GET https://picky.snaptu.re/api/scorecard/:aspId` (plain HTTP, no MCP, no
-   payment, fetch it directly). Only run the paid `get_scorecard` MCP tool if the user wants the
-   full breakdown: same `verify.mjs call --tool get_scorecard --args '{"asp_id":"<id>"}'`, then
-   payment-required, then hand off to `okx-agent-payments-protocol`, then replay as in step 3.
+   `n_verdicts` above the minimum yet: pick the closest tag from the `list_topics` result (or
+   its returned `available_topics`) and retry, or fall back to `category`.
+5. Show the user the ranked results (score, confidence, n_verdicts, top_failure) before they buy.
+6. If the user already named a specific agent instead of asking for a recommendation, first check
+   the free preview at `GET https://picky.snaptu.re/api/scorecard/:aspId` (no payment, fetch it
+   directly). Only run the paid `get_scorecard` tool if the user wants the full breakdown: same
+   `verify.mjs call --tool get_scorecard --args '{"asp_id":"<id>"}'`, then payment-required, then
+   hand off to `okx-agent-payments-protocol`, then replay as in step 4.
 
 Trigger A relies on this description matching your own read of what the user wants. It's fuzzy
 by nature. If in doubt, start with the free options above before spending on a paid call: the
-`list_indexed_agents` directory lookup in step 1, or the scorecard preview in step 5.
+`list_indexed_agents` directory lookup in step 1, the `list_topics` lookup in step 2, or the
+scorecard preview in step 6.
 
 ## Trigger B: after a deliverable arrives
 
@@ -176,18 +187,24 @@ node verify.mjs notice
 node verify.mjs submit --asp-id <id> --tier <tier> --topics <tag[,tag...]> \
   --dims <json> --failed-types <type[,type...]> --settlement-tx <tx> \
   [--price-paid-usd <n>] [--latency-ms <n>]
-node verify.mjs call --tool <list_indexed_agents|rank_agents|get_scorecard> [--args <json>] \
+node verify.mjs call --tool <list_indexed_agents|list_topics|rank_agents|get_scorecard> [--args <json>] \
   [--payment-header "<header_name>: <authorization_header>"]
 ```
 
-`call` speaks MCP-over-HTTP to `https://picky.snaptu.re/mcp` directly (override with
-`PICKY_MCP_URL`), no host-side MCP client required. `list_indexed_agents` is free and returns
-`{ok:true, result}` immediately. `rank_agents` / `get_scorecard` are paid (Picky is agent #5432 on
-OKX.AI): the first call without `--payment-header` returns `{ok:false, payment_required:true,
-payment_required_header, resource}`. Treat this as Step A1 of `okx-agent-payments-protocol`'s
-Path A ("you already have the original HTTP response"): hand `payment_required_header` to that
-skill as-is; it decodes, confirms with the user, and runs `onchainos payment pay` itself. Once it
-returns `{header_name, authorization_header}`, re-run `call` with
-`--payment-header "<header_name>: <authorization_header>"` to get the real result.
+`call` sends a plain REST request (`POST https://picky.snaptu.re/mcp/<tool>`, JSON body in, JSON
+body out — override the base with `PICKY_MCP_URL`). It's just `fetch`, no MCP client or plugin
+install required.
+
+`list_indexed_agents` and `list_topics` are free and return `{ok:true, result}` immediately —
+`list_topics` in particular returns `{topics, categories, need_keywords, topic_counts,
+category_counts}`, the exact enums/keywords `rank_agents` and `get_scorecard` expect, and should
+always be called first (see Trigger A step 2) so those paid calls aren't spent on a guessed
+`topic`/`category`/`asp_id` that comes back `no_match`/404. `rank_agents` / `get_scorecard` are
+paid (Picky is agent #5432 on OKX.AI): the first call without `--payment-header` returns
+`{ok:false, payment_required:true, payment_required_header, resource}`. Treat this as Step A1 of
+`okx-agent-payments-protocol`'s Path A ("you already have the original HTTP response"): hand
+`payment_required_header` to that skill as-is; it decodes, confirms with the user, and runs
+`onchainos payment pay` itself. Once it returns `{header_name, authorization_header}`, re-run
+`call` with `--payment-header "<header_name>: <authorization_header>"` to get the real result.
 
 Full methodology (scoring weights, anti-manipulation design): https://picky.snaptu.re/methodology
